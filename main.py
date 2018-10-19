@@ -4,7 +4,8 @@
 Created on Thu Aug 30 22:13:36 2018
 
 @author: filippo.ermini
-"""" test git
+
+"""
 from __future__ import print_function
 import json
 import numpy as np
@@ -24,13 +25,12 @@ outClass = 3
 batch_size = 128
 epochs = 10
 
-jsonFile = '/Volumes/KINGSTON/Dataset_tesi/serialize3Line.json'
-
 def createDataset(jsonFile,outClass,image_width,image_height):
     j = 0
     k = 0
-    json_data=open().read(jsonFile)
-    data = json.loads(json_data)
+
+    with open(jsonFile) as f:
+        data = json.load(f)
     length = len(data["matrixList"]) * len(data["matrixList"][0]["sampleArray"])
     
     testDimension   = length // 4
@@ -80,13 +80,14 @@ def createDataset(jsonFile,outClass,image_width,image_height):
     print("All images to array!")
     return [datasetTrainX,datasetTrainY,datasetTestX,datasetTestY]
 
+jsonFile = '/Volumes/KINGSTON/Dataset_tesi/serialize3Line.json'
 dataset = createDataset(jsonFile,outClass,image_width,image_height)
 
 
 x_train = dataset[0]
 x_test  = dataset[2]
-x_train = dataset[1]
-x_test  = dataset[3]
+y_train = dataset[1]
+y_test  = dataset[3]
 
 input_shape = (image_width, image_height, 4)
 
@@ -97,7 +98,7 @@ model.add(Conv2D(64, (5, 5), activation='relu'))
 model.add(MaxPooling2D(pool_size=(2, 2)))
 model.add(Flatten())
 model.add(Dense(1000, activation='relu'))
-model.add(Dense(num_classes, activation='softmax'))
+model.add(Dense(outClass,activation='softmax'))
 model.compile(loss=keras.losses.categorical_crossentropy,optimizer=keras.optimizers.Adam(),metrics=['accuracy'])
 
 class AccuracyHistory(keras.callbacks.Callback):
