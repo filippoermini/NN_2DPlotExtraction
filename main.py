@@ -4,7 +4,6 @@
 Created on Thu Aug 30 22:13:36 2018
 
 @author: filippo.ermini
-
 """
 from __future__ import print_function
 import json
