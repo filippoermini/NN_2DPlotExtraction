@@ -14,10 +14,13 @@ from keras.layers import Dense, Flatten
 from keras.layers import Conv2D, MaxPooling2D
 from keras.models import Sequential
 import matplotlib.pylab as plt
+import os
+import pickle
+
 
 image_width = 50
 image_height = 300
-channels = 4
+channels = 1
 outClass = 3
 
 batch_size = 128
@@ -34,10 +37,10 @@ def createDataset(jsonFile,outClass,image_width,image_height):
     testDimension   = length // 4
     trainDimension  = length - testDimension 
     
-    datasetTrainX = np.ndarray(shape=(trainDimension, image_width, image_height,channels),dtype=np.float32)
+    datasetTrainX = np.ndarray(shape=(trainDimension, image_width, image_height),dtype=np.float32)
     datasetTrainY = np.ndarray(shape=(trainDimension, outClass))
     
-    datasetTestX = np.ndarray(shape=(testDimension, image_width, image_height,channels),dtype=np.float32)
+    datasetTestX = np.ndarray(shape=(testDimension, image_width, image_height),dtype=np.float32)
     datasetTestY = np.ndarray(shape=(testDimension, outClass))
     
     
@@ -47,6 +50,7 @@ def createDataset(jsonFile,outClass,image_width,image_height):
         
         size = (image_width,image_height)
         image = Image.open('/Volumes/KINGSTON/Dataset_tesi/dataset_master/' + str(imageIndex) + '.png')
+        image = image.convert('RGB').convert('LA')
         for i in range(0,len(sampleArray)):
             verticalBbox = sampleArray[i]['VerticalWindow']
             x  = int(verticalBbox['x'])
@@ -59,8 +63,8 @@ def createDataset(jsonFile,outClass,image_width,image_height):
             verticalWindow = image.crop(bbox)
             verticalWindow = verticalWindow.resize(size)
             
-            x_array = img_to_array(verticalWindow)
-            x_array = x_array.reshape(image_width,image_height,channels)
+            x_array = np.array(verticalWindow)
+            x_array = x_array[:,:,0].reshape(image_width,image_height)
             
             
             if(j< trainDimension):
@@ -75,53 +79,111 @@ def createDataset(jsonFile,outClass,image_width,image_height):
             if (j+k) % 250 == 0:
                 print("%d images to array" % j)
             
+            if (j+k) % 250 == 0:
+                print("%d images to array" % (j+k))
+            
     print("All images to array!")
     return [datasetTrainX,datasetTrainY,datasetTestX,datasetTestY]
 
+
+
 jsonFile = '/Volumes/KINGSTON/Dataset_tesi/serialize3Line.json'
-dataset = createDataset(jsonFile,outClass,image_width,image_height)
-
-
+datasetDump = "DumpDataset.dat";
+if(os.path.exists(datasetDump)):
+    with open(datasetDump, "rb") as fp:   # Unpickling
+        dataset = pickle.load(fp)
+    print("load dump dataset")
+else:
+    dataset = createDataset(jsonFile,outClass,image_width,image_height)
+    with open(datasetDump, "wb") as fp:   #Pickling
+        pickle.dump(dataset, fp)
+    print("dataset dumpCreated in file: %s", datasetDump )
+def normalizeOutput(mat):
+    [m,n] = mat.shape
+    for i in range(0,m):
+        vect = mat[i,:]
+        max = np.max(vect)
+        min = np.min(vect)
+        v = (vect - min) / (max - min)
+        mat[i,:] = v
+    return mat
+        
+    
 x_train = dataset[0]
 x_test  = dataset[2]
 y_train = dataset[1]
 y_test  = dataset[3]
 
-input_shape = (image_width, image_height, 4)
 
-model = Sequential()
-model.add(Dense(64, activation='relu',input_shape=(image_width, image_height, 4)))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(1))
-model.compile(optimizer='rmsprop', loss='mse', metrics=['mae'])
+inputShape = (image_width, image_height)
 
+def build_model():
+    model = Sequential()
+    model.add(Dense(64, activation='relu',input_shape=inputShape))
+    model.add(Dense(64, activation='relu'))
+    model.add(Flatten())
+    model.add(Dense(3, activation='relu'))
+    model.compile(optimizer='rmsprop', loss='mse', metrics=['mae'])
+    return model
 
-#model.add(Conv2D(32, kernel_size=(5, 5), strides=(1, 1),activation='relu',input_shape=input_shape))
-#model.add(MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
-#model.add(Conv2D(64, (5, 5), activation='relu'))
-#model.add(MaxPooling2D(pool_size=(2, 2)))
-#model.add(Flatten())
-#model.add(Dense(1000, activation='relu'))
-
-class AccuracyHistory(keras.callbacks.Callback):
-    def on_train_begin(self, logs={}):
-        self.acc = []
-
-    def on_epoch_end(self, batch, logs={}):
-        self.acc.append(logs.get('acc'))
-
-history = AccuracyHistory()
-
-model.fit(x_train, y_train,
-          batch_size=batch_size,
-          epochs=epochs,
-          verbose=1,
-          validation_data=(x_test, y_test),
-          callbacks=[history])
-score = model.evaluate(x_test, y_test, verbose=0)
-print('Test loss:', score[0])
-print('Test accuracy:', score[1])
-plt.plot(range(1, 11), history.acc)
+ 
+ 
+k = 5
+num_val_samples = len(x_train) // k
+num_epochs = 100
+all_mae_histories = []
+ 
+for i in range(k):
+    print('processing fold #', i)
+    val_data    = x_train[i * num_val_samples: (i + 1) * num_val_samples]
+    val_targets = y_train[i * num_val_samples: (i + 1) * num_val_samples]
+ 
+    partial_train_data = np.concatenate(
+     [x_train[:i * num_val_samples],
+      x_train[(i + 1) * num_val_samples:]],
+      axis=0)
+    partial_train_targets = np.concatenate(
+     [y_train[:i * num_val_samples],
+      y_train[(i + 1) * num_val_samples:]],
+      axis=0)
+ 
+    model = build_model()
+    history = model.fit(partial_train_data, partial_train_targets,validation_data=(val_data, val_targets),epochs=num_epochs, batch_size=1, verbose=1)
+    mae_history = history.history['val_mean_absolute_error']
+    all_mae_histories.append(mae_history)
+    average_mae_history = [np.mean([x[i] for x in all_mae_histories]) for i in range(num_epochs)]
+ 
+plt.plot(range(1, len(average_mae_history) + 1), average_mae_history)
 plt.xlabel('Epochs')
-plt.ylabel('Accuracy')
+plt.ylabel('Validation MAE')
 plt.show()
+ 
+     #val_mse, val_mae = model.evaluate(val_data, val_targets, verbose=0)
+     #all_scores.append(val_mae)
+ 
+ 
+
+#    
+#class AccuracyHistory(keras.callbacks.Callback):
+#    def on_train_begin(self, logs={}):
+#        self.acc = []
+#
+#    def on_epoch_end(self, batch, logs={}):
+#        self.acc.append(logs.get('acc'))
+#
+#history = AccuracyHistory()
+#model = build_model()
+#model.fit(x_train, y_train,
+#          batch_size=batch_size,
+#          epochs=epochs,
+#          verbose=1,
+#          validation_data=(x_test, y_test),
+#          callbacks=[history])
+#score = model.evaluate(x_test, y_test, verbose=0)
+#print('Test loss:', score[0])
+#print('Test accuracy:', score[1])
+#plt.plot(range(1, 11), history.acc)
+#plt.xlabel('Epochs')
+#plt.ylabel('Accuracy')
+#plt.show()
+
